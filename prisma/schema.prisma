@@ -1,0 +1,240 @@
+// Prisma schema for Sweep Vaal - Gardener & Homeowner Booking Platform
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Enum for user roles
+enum UserRole {
+  WORKER    // Gardener/Service Provider
+  EMPLOYER  // Homeowner/Client
+  ADMIN
+}
+
+// Enum for booking status
+enum BookingStatus {
+  PENDING    // Awaiting worker acceptance
+  ACCEPTED   // Worker has accepted the booking
+  COMPLETED  // Work has been completed
+  CANCELLED  // Booking was cancelled
+  REJECTED   // Worker rejected the booking
+}
+
+// Enum for service categories
+enum ServiceCategory {
+  LAWN_MOWING
+  GARDEN_DESIGN
+  WEEDING
+  HEDGE_TRIMMING
+  LANDSCAPING
+  GENERAL_GARDENING
+  OTHER
+}
+
+// Enum for payment status
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+// Users Table - Stores both Workers and Employers
+model User {
+  id                    String        @id @default(cuid())
+  email                 String        @unique
+  password              String
+  firstName             String
+  lastName              String
+  phoneNumber           String        @unique
+  profilePicture        String?
+  bio                   String?
+  role                  UserRole
+  isVerified            Boolean       @default(false)
+  isActive              Boolean       @default(true)
+  
+  // Location details
+  address               String
+  city                  String        @default("Vaal")
+  province              String        @default("Gauteng")
+  latitude              Float?
+  longitude             Float?
+  
+  // Worker-specific fields
+  yearsOfExperience     Int?
+  qualifications        String?
+  specializations       String[]      @default([])  // Array of service types
+  hourlyRate            Float?
+  averageRating         Float?        @default(0)
+  totalReviews          Int?          @default(0)
+  bankAccountName       String?
+  bankAccountNumber     String?
+  bankCode              String?
+  
+  // Employer-specific fields
+  businessName          String?
+  companyLogo           String?
+  
+  // Timestamps
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+  
+  // Relations
+  bookingsAsWorker      Booking[]     @relation("WorkerBookings")
+  bookingsAsEmployer    Booking[]     @relation("EmployerBookings")
+  reviews               Review[]      @relation("ReviewAuthor")
+  reviewsReceived       Review[]      @relation("ReviewRecipient")
+  payments              Payment[]
+  availability          Availability[]
+  notifications         Notification[]
+  
+  @@index([email])
+  @@index([role])
+  @@index([city])
+}
+
+// Bookings Table - Service requests from employers to workers
+model Booking {
+  id                    String        @id @default(cuid())
+  bookingNumber         String        @unique @default(cuid())
+  
+  // User relations
+  employerId            String
+  employer              User          @relation("EmployerBookings", fields: [employerId], references: [id], onDelete: Cascade)
+  
+  workerId              String?
+  worker                User?         @relation("WorkerBookings", fields: [workerId], references: [id], onDelete: SetNull)
+  
+  // Booking details
+  serviceCategory       ServiceCategory
+  title                 String
+  description           String
+  estimatedDuration     Int           // in minutes
+  estimatedCost         Float
+  
+  // Location
+  serviceAddress        String
+  city                  String        @default("Vaal")
+  latitude              Float?
+  longitude             Float?
+  
+  // Status and timeline
+  status                BookingStatus @default(PENDING)
+  scheduledDate         DateTime
+  scheduledTime         String        // HH:MM format
+  completedDate         DateTime?
+  
+  // Payment
+  totalCost             Float?
+  paymentStatus         PaymentStatus @default(PENDING)
+  
+  // Additional
+  specialRequests       String?
+  images                String[]      @default([])  // Image URLs
+  notes                 String?
+  
+  // Timestamps
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+  acceptedAt            DateTime?
+  completedAt           DateTime?
+  
+  // Relations
+  reviews               Review[]
+  payment               Payment?
+  
+  @@index([employerId])
+  @@index([workerId])
+  @@index([status])
+  @@index([scheduledDate])
+  @@index([city])
+}
+
+// Reviews Table - Ratings and feedback
+model Review {
+  id                    String        @id @default(cuid())
+  
+  bookingId             String        @unique
+  booking               Booking       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  
+  authorId              String
+  author                User          @relation("ReviewAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  
+  recipientId           String
+  recipient             User          @relation("ReviewRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  
+  rating                Int           // 1-5 stars
+  comment               String?
+  
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+  
+  @@index([authorId])
+  @@index([recipientId])
+  @@index([bookingId])
+}
+
+// Payments Table - Payment records
+model Payment {
+  id                    String        @id @default(cuid())
+  
+  bookingId             String        @unique
+  booking               Booking       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  
+  userId                String
+  user                  User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  amount                Float
+  status                PaymentStatus @default(PENDING)
+  paymentMethod         String        // "card", "bank_transfer", "cash"
+  transactionId         String?       @unique
+  
+  createdAt             DateTime      @default(now())
+  completedAt           DateTime?
+  
+  @@index([userId])
+  @@index([bookingId])
+  @@index([status])
+}
+
+// Availability Table - Worker availability schedule
+model Availability {
+  id                    String        @id @default(cuid())
+  
+  workerId              String
+  worker                User          @relation(fields: [workerId], references: [id], onDelete: Cascade)
+  
+  dayOfWeek             Int           // 0-6 (Sunday-Saturday)
+  startTime             String        // HH:MM format
+  endTime               String        // HH:MM format
+  isAvailable           Boolean       @default(true)
+  
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+  
+  @@unique([workerId, dayOfWeek])
+  @@index([workerId])
+}
+
+// Notifications Table - In-app notifications
+model Notification {
+  id                    String        @id @default(cuid())
+  
+  userId                String
+  user                  User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  type                  String        // "booking_request", "booking_accepted", "booking_completed", etc.
+  title                 String
+  message               String
+  relatedBookingId      String?
+  isRead                Boolean       @default(false)
+  
+  createdAt             DateTime      @default(now())
+  
+  @@index([userId])
+  @@index([isRead])
+}
